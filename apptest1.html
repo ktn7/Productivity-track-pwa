@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimalist Productivity Tracker</title>
+    <!-- Tailwind CSS CDN for modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font for a clean look */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for the notification modal overlay */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.6); /* Semi-transparent black background */
+            backdrop-filter: blur(5px); /* Blurs the content behind the modal */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main Application Container -->
+    <!-- Centered, max-w, light background, rounded corners, shadow for depth -->
+    <div class="relative w-full max-w-md bg-white rounded-xl shadow-lg p-6 flex flex-col items-center space-y-8">
+
+        <!-- Timer Display Section -->
+        <div class="flex flex-col items-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Segment Timer</h1>
+            <!-- Prominent timer display with large font, distinct background, and shadow -->
+            <div id="timer" class="text-6xl font-extrabold text-blue-600 bg-blue-50 px-8 py-4 rounded-lg shadow-inner">
+                15:00
+            </div>
+        </div>
+
+        <!-- Daily Productivity Summary Section -->
+        <div class="w-full text-center">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Summary</h2>
+            <!-- Grid layout for the summary counts, ensuring responsiveness -->
+            <div class="grid grid-cols-2 gap-4 text-lg">
+                <!-- Productive Count -->
+                <div class="flex flex-col items-center p-3 bg-green-50 rounded-lg shadow-sm">
+                    <span class="font-medium text-green-700">Productive:</span>
+                    <span id="productive-count" class="text-3xl font-bold text-green-600">0</span>
+                </div>
+                <!-- Bit Productive Count -->
+                <div class="flex flex-col items-center p-3 bg-yellow-50 rounded-lg shadow-sm">
+                    <span class="font-medium text-yellow-700">Bit Productive:</span>
+                    <span id="bit-productive-count" class="text-3xl font-bold text-yellow-600">0</span>
+                </div>
+                <!-- Not Productive Count -->
+                <div class="flex flex-col items-center p-3 bg-red-50 rounded-lg shadow-sm">
+                    <span class="font-medium text-red-700">Not Productive:</span>
+                    <span id="not-productive-count" class="text-3xl font-bold text-red-600">0</span>
+                </div>
+                <!-- N/A Count -->
+                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg shadow-sm">
+                    <span class="font-medium text-gray-700">N/A:</span>
+                    <span id="na-count" class="text-3xl font-bold text-gray-600">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Modal (initially hidden) -->
+    <!-- Fixed overlay that covers the entire screen when active -->
+    <div id="notification-modal" class="hidden fixed inset-0 flex items-center justify-center z-50 modal-overlay p-4">
+        <!-- Modal content box: white background, rounded, shadow, centered text -->
+        <div class="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full text-center space-y-6">
+            <h3 class="text-2xl font-bold text-gray-800">What did you do in the last 15 minutes?</h3>
+            <div class="flex flex-col space-y-4">
+                <!-- Productive Button -->
+                <button id="productive-btn" class="py-3 px-6 rounded-lg text-white font-semibold bg-green-500 hover:bg-green-600 transition duration-300 ease-in-out shadow-md">
+                    Productive
+                </button>
+                <!-- Bit Productive Button -->
+                <button id="bit-productive-btn" class="py-3 px-6 rounded-lg text-white font-semibold bg-yellow-500 hover:bg-yellow-600 transition duration-300 ease-in-out shadow-md">
+                    Bit Productive
+                </button>
+                <!-- Not Productive Button -->
+                <button id="not-productive-btn" class="py-3 px-6 rounded-lg text-white font-semibold bg-red-500 hover:bg-red-600 transition duration-300 ease-in-out shadow-md">
+                    Not Productive
+                </button>
+            </div>
+            <p class="text-sm text-gray-500 mt-4">Will be marked N/A after 1 minute if no selection is made.</p>
+        </div>
+    </div>
+
+    <script>
+        // --- Global Variables ---
+        // `timerInterval`: Stores the ID of the setInterval for the main 15-minute timer.
+        let timerInterval;
+        // `notificationTimeout`: Stores the ID of the setTimeout for the 1-minute N/A handling.
+        let notificationTimeout;
+        // `minutes`: Current minutes displayed on the timer. Initialized to 15.
+        let minutes = 15;
+        // `seconds`: Current seconds displayed on the timer. Initialized to 0.
+        let seconds = 0;
+        // `isNotificationActive`: A boolean flag to track if the notification modal is currently displayed.
+        // This helps prevent marking multiple N/A segments if the user closes and reopens the app without interacting.
+        let isNotificationActive = false;
+
+        // `productivitySummary`: An object to store the counts for each productivity category.
+        let productivitySummary = {
+            productive: 0,
+            bitProductive: 0,
+            notProductive: 0,
+            n_a: 0,
+        };
+        // `lastResetDate`: Stores the date (as a string) when the productivity summary was last reset.
+        // Used to determine if a new day has started for automatic daily resets.
+        let lastResetDate = '';
+
+        // --- DOM Element References ---
+        // Get references to HTML elements by their IDs for manipulation.
+        const timerDisplay = document.getElementById('timer');
+        const productiveCount = document.getElementById('productive-count');
+        const bitProductiveCount = document.getElementById('bit-productive-count');
+        const notProductiveCount = document.getElementById('not-productive-count');
+        const naCount = document.getElementById('na-count');
+        const notificationModal = document.getElementById('notification-modal');
+        const productiveBtn = document.getElementById('productive-btn');
+        const bitProductiveBtn = document.getElementById('bit-productive-btn');
+        const notProductiveBtn = document.getElementById('not-productive-btn');
+
+        // --- Core Functions ---
+
+        /**
+         * Updates the text content of the timer display element.
+         * Formats minutes and seconds to always show two digits (e.g., "02:05" instead of "2:5").
+         */
+        function updateTimerDisplay() {
+            timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        /**
+         * Starts or restarts the main 15-minute countdown timer.
+         * Clears any previously running timer interval to ensure only one timer is active at a time.
+         */
+        function startTimer() {
+            clearInterval(timerInterval); // Stop any existing timer to prevent multiple countdowns
+            timerInterval = setInterval(() => {
+                if (seconds === 0) {
+                    if (minutes === 0) {
+                        // If both minutes and seconds are zero, a 15-minute segment has just completed.
+                        clearInterval(timerInterval); // Stop the current timer
+                        endSegmentAndShowNotification(); // Trigger the notification and handle segment end
+                        return; // Exit the interval callback
+                    }
+                    minutes--; // Decrement minutes if seconds reached zero
+                    seconds = 59; // Reset seconds to 59
+                } else {
+                    seconds--; // Decrement seconds
+                }
+                updateTimerDisplay(); // Update the timer display on the UI every second
+            }, 1000); // The interval runs every 1000 milliseconds (1 second)
+        }
+
+        /**
+         * Resets the main 15-minute timer to "15:00" and immediately starts it again.
+         * This function is crucial for two scenarios:
+         * 1. When a 15-minute segment automatically ends (timer hits 0:00).
+         * 2. When the user interacts with the notification (as per the requirement: "The timer should also reset if the user interacts with the notification prompt").
+         */
+        function resetTimer() {
+            minutes = 15;
+            seconds = 0; // Set seconds back to the starting value
+            updateTimerDisplay(); // Update the UI to reflect "15:00"
+            startTimer(); // Start the timer again for the new or restarted segment
+        }
+
+        /**
+         * Handles the end of a 15-minute segment. It performs the following actions:
+         * 1. Marks the notification as active.
+         * 2. Displays the notification modal to the user.
+         * 3. Sets a 1-minute timeout. If the user doesn't interact with the notification
+         * within this period, the segment is automatically marked as "N/A".
+         * 4. Resets the main timer to start the next 15-minute segment immediately.
+         */
+        function endSegmentAndShowNotification() {
+            isNotificationActive = true; // Set flag indicating notification is visible
+            notificationModal.classList.remove('hidden'); // Make the notification modal visible
+
+            // Clear any previously existing N/A timeout to prevent double-marking
+            clearTimeout(notificationTimeout);
+            // Set a new timeout for 1 minute (1 * 60 seconds * 1000 milliseconds/second)
+            notificationTimeout = setTimeout(() => {
+                if (isNotificationActive) { // Check if notification is still active before marking N/A
+                    recordCategory('n_a'); // Record the segment as Not Applicable
+                    hideNotification(); // Hide the notification modal
+                }
+            }, 1 * 60 * 1000); // Changed from 15 minutes to 1 minute in milliseconds
+
+            resetTimer(); // Immediately reset and start the timer for the *next* 15-minute segment
+        }
+
+        /**
+         * Hides the notification modal and clears the associated N/A timeout.
+         * This is called after a user selects a category or if the segment is automatically marked N/A.
+         */
+        function hideNotification() {
+            notificationModal.classList.add('hidden'); // Add 'hidden' class to hide the modal
+            isNotificationActive = false; // Reset the notification active flag
+            clearTimeout(notificationTimeout); // Clear the N/A timeout as interaction occurred or N/A was handled
+        }
+
+        /**
+         * Records the chosen productivity category by incrementing its count in `productivitySummary`.
+         * Also triggers saving the updated summary to local storage and updating the UI display.
+         * @param {string} category - The category to record ('productive', 'bitProductive', 'notProductive', 'n_a').
+         */
+        function recordCategory(category) {
+            productivitySummary[category]++; // Increment the count for the specified category
+            saveSummaryToLocalStorage(); // Persist the updated summary
+            updateSummaryDisplay(); // Refresh the summary display on the UI
+        }
+
+        /**
+         * Updates the text content of the daily productivity summary elements on the UI.
+         * This function should be called whenever `productivitySummary` changes.
+         */
+        function updateSummaryDisplay() {
+            productiveCount.textContent = productivitySummary.productive;
+            bitProductiveCount.textContent = productivitySummary.bitProductive;
+            notProductiveCount.textContent = productivitySummary.notProductive;
+            naCount.textContent = productivitySummary.n_a;
+        }
+
+        /**
+         * Saves the current state of `productivitySummary` and `lastResetDate` to the browser's localStorage.
+         * Data is stored as JSON strings.
+         */
+        function saveSummaryToLocalStorage() {
+            localStorage.setItem('productivitySummary', JSON.stringify(productivitySummary));
+            localStorage.setItem('lastResetDate', lastResetDate);
+        }
+
+        /**
+         * Loads the productivity summary from localStorage.
+         * It checks if the `lastResetDate` stored matches the current date. If not (meaning a new day has started),
+         * it automatically resets the daily summary. Otherwise, it loads the existing data.
+         */
+        function loadSummaryFromLocalStorage() {
+            const savedSummary = localStorage.getItem('productivitySummary');
+            const savedDate = localStorage.getItem('lastResetDate');
+            const today = new Date().toDateString(); // Get today's date in a comparable string format (e.g., "Mon Jul 29 2024")
+
+            if (savedDate === today && savedSummary) {
+                // If saved data exists for the current day, parse and load it
+                productivitySummary = JSON.parse(savedSummary);
+                lastResetDate = savedDate;
+            } else {
+                // If it's a new day or no data was found, reset the summary
+                resetDailySummary();
+            }
+            updateSummaryDisplay(); // Update the UI with the loaded or reset summary
+        }
+
+        /**
+         * Resets all productivity counts within `productivitySummary` to zero.
+         * It also updates `lastResetDate` to the current day, effectively starting a new daily tracking cycle.
+         * This function is called at midnight (or on the first load of a new day).
+         */
+        function resetDailySummary() {
+            productivitySummary = {
+                productive: 0,
+                bitProductive: 0,
+                notProductive: 0,
+                n_a: 0,
+            };
+            lastResetDate = new Date().toDateString(); // Set the reset date to today
+            saveSummaryToLocalStorage(); // Save this newly reset summary to localStorage
+        }
+
+        // --- Event Listeners for Notification Buttons ---
+        // When a user clicks a productivity category button in the notification:
+        productiveBtn.addEventListener('click', () => {
+            recordCategory('productive'); // Record the chosen category
+            hideNotification(); // Hide the notification modal
+            resetTimer(); // Reset the main timer as the user interacted with the prompt
+        });
+
+        bitProductiveBtn.addEventListener('click', () => {
+            recordCategory('bitProductive'); // Record the chosen category
+            hideNotification(); // Hide the notification modal
+            resetTimer(); // Reset the main timer as the user interacted with the prompt
+        });
+
+        notProductiveBtn.addEventListener('click', () => {
+            recordCategory('notProductive'); // Record the chosen category
+            hideNotification(); // Hide the notification modal
+            resetTimer(); // Reset the main timer as the user interacted with the prompt
+        });
+
+        // --- Initialization ---
+        // This code runs once the entire page (including all HTML elements) has finished loading.
+        window.onload = () => {
+            loadSummaryFromLocalStorage(); // Initialize productivity summary (load or reset)
+            updateTimerDisplay(); // Set the initial timer display to 15:00
+            startTimer(); // Begin the 15-minute countdown
+        };
+    </script>
+</body>
+</html>
