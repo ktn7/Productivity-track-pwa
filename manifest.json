@@ -2,7 +2,7 @@
     "name": "Minimalist Productivity Tracker",
     "short_name": "ProdTracker",
     "description": "A minimalist productivity tracker to help you understand how you spend your time.",
-    "start_url": "./",
+    "start_url": "./apptest1.html",
     "display": "standalone",
     "background_color": "#f3f4f6",
     "theme_color": "#2563eb",
@@ -18,4 +18,5 @@
             "type": "image/png"
         }
     ]
+
 }
